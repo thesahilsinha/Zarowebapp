@@ -10,6 +10,8 @@ import ReviewsSection from "@/components/home/ReviewsSection";
 import StatsSection from "@/components/home/StatsSection";
 import HampersSection from "@/components/home/HampersSection";
 import NewsletterSection from "@/components/home/NewsletterSection";
+import CustomHamperBanner from "@/components/home/CustomHamperBanner";
+import WhatsAppOrderSection from "@/components/home/WhatsAppOrderSection"
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -36,6 +38,9 @@ export default async function HomePage() {
         <BestSellersSection products={bestSellers || []} />
         <ExperienceSection />
         <HampersSection products={hampers || []} />
+        <ReviewsSection />
+        <WhatsAppOrderSection />
+        <CustomHamperBanner />
         <ReviewsSection />
         <StatsSection />
         <NewsletterSection />

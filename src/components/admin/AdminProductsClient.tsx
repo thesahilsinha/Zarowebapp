@@ -51,6 +51,7 @@ export default function AdminProductsClient({ products, categories }: any) {
       rating_count: parseInt(form.rating_count) || 0,
       stock: parseInt(form.stock) || 0,
       images: form.images.filter((img: string) => img.trim()),
+      video_url: form.video_url || null,
     };
 
     if (editing) {
@@ -190,6 +191,20 @@ export default function AdminProductsClient({ products, categories }: any) {
                       className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
                   ))}
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                  Video URL (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={form.video_url || ""}
+                  onChange={(e) => setForm({ ...form, video_url: e.target.value })}
+                  placeholder="YouTube or direct video link"
+                  className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
+                />
+                <p className="text-xs text-muted-foreground mt-1">Paste a YouTube link or direct .mp4 URL</p>
               </div>
 
               {/* Flags */}

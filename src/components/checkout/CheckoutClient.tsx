@@ -52,6 +52,9 @@ export default function CheckoutClient() {
   const [razorpayEnabled, setRazorpayEnabled] = useState(false);
   const [placing, setPlacing] = useState(false);
 
+  // ── SPECIAL REQUESTS STATE ──
+  const [specialRequests, setSpecialRequests] = useState("");
+
   const [form, setForm] = useState<AddressForm>({
     full_name: "", phone: "", address_line1: "",
     address_line2: "", landmark: "", pincode: "",
@@ -63,14 +66,12 @@ export default function CheckoutClient() {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) { router.push("/login"); return; }
       setUser(user);
-      // Load saved addresses
       supabase.from("addresses").select("*").eq("user_id", user.id).then(({ data }) => {
         setSavedAddresses(data || []);
         const def = data?.find((a) => a.is_default);
         if (def) { setSelectedAddressId(def.id); populateFormFromAddress(def); }
       });
     });
-    // Check razorpay enabled
     supabase.from("settings").select("value").eq("key", "razorpay_enabled").single().then(({ data }) => {
       setRazorpayEnabled(data?.value === true || data?.value === "true");
     });
@@ -106,24 +107,19 @@ export default function CheckoutClient() {
     setCouponLoading(true);
     const supabase = createClient();
     const { data: coupon } = await supabase
-      .from("coupons")
-      .select("*")
+      .from("coupons").select("*")
       .eq("code", couponCode.toUpperCase())
-      .eq("is_active", true)
-      .single();
-
+      .eq("is_active", true).single();
     if (!coupon) { toast.error("Invalid coupon code"); setCouponLoading(false); return; }
     if (coupon.valid_until && new Date(coupon.valid_until) < new Date()) {
       toast.error("Coupon has expired"); setCouponLoading(false); return;
     }
     if (subtotal < coupon.min_order_value) {
-      toast.error(`Minimum order value ₹${coupon.min_order_value} required`);
-      setCouponLoading(false); return;
+      toast.error(`Minimum order value ₹${coupon.min_order_value} required`); setCouponLoading(false); return;
     }
     if (coupon.usage_limit && coupon.used_count >= coupon.usage_limit) {
       toast.error("Coupon usage limit reached"); setCouponLoading(false); return;
     }
-
     setCouponData(coupon);
     toast.success("Coupon applied!");
     setCouponLoading(false);
@@ -171,10 +167,11 @@ export default function CheckoutClient() {
       total,
       status: "pending",
       payment_method: paymentMethod,
-      payment_status: paymentMethod === "cod" ? "pending" : "pending",
+      payment_status: "pending",
       delivery_address: deliveryAddress,
       pincode: form.pincode,
       coupon_code: couponData?.code || null,
+      special_requests: specialRequests || null,
     }).select().single();
 
     if (error || !order) {
@@ -191,8 +188,38 @@ export default function CheckoutClient() {
       await supabase.from("coupons").update({ used_count: couponData.used_count + 1 }).eq("id", couponData.id);
     }
 
+    // ── SEND ORDER PLACED EMAIL ──
+    try {
+      const { data: profile } = await supabase
+        .from("profiles").select("full_name, email").eq("id", user.id).single();
+
+      await fetch("/api/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "placed",
+          order: {
+            order_number: orderNumber,
+            customer_name: profile?.full_name || deliveryAddress.full_name,
+            customer_email: profile?.email || user.email,
+            items: orderItems,
+            subtotal,
+            delivery_charge: Math.max(0, deliveryCharge),
+            discount,
+            gift_card_discount: 0,
+            total,
+            delivery_address: deliveryAddress,
+            payment_method: paymentMethod,
+            special_requests: specialRequests || null,
+          },
+        }),
+      });
+    } catch (e) {
+      console.error("Email send failed:", e);
+    }
+    // ── END EMAIL ──
+
     toast.success("Order placed successfully!");
-    
     router.push(`/dashboard/orders?success=${order.order_number}`);
     setPlacing(false);
   };
@@ -202,7 +229,8 @@ export default function CheckoutClient() {
       <div className="max-w-2xl mx-auto px-4 py-20 text-center">
         <h2 className="font-playfair text-2xl font-bold mb-3">Your cart is empty</h2>
         <p className="text-muted-foreground mb-6">Add some products before checking out.</p>
-        <button onClick={() => router.push("/shop")} className="bg-brand-500 text-white px-6 py-3 rounded-xl font-medium hover:bg-brand-600 transition-colors">
+        <button onClick={() => router.push("/shop")}
+          className="bg-brand-500 text-white px-6 py-3 rounded-xl font-medium hover:bg-brand-600 transition-colors">
           Browse Shop
         </button>
       </div>
@@ -223,7 +251,9 @@ export default function CheckoutClient() {
               s.key === step ? "bg-brand-500 text-white" :
               i < stepIndex ? "bg-green-100 text-green-700" : "bg-accent text-muted-foreground"
             }`}>
-              {i < stepIndex ? <CheckCircle size={14} /> : <span className="w-4 h-4 rounded-full border-2 flex items-center justify-center text-xs">{i + 1}</span>}
+              {i < stepIndex
+                ? <CheckCircle size={14} />
+                : <span className="w-4 h-4 rounded-full border-2 flex items-center justify-center text-xs">{i + 1}</span>}
               {s.label}
             </div>
             {i < STEPS.length - 1 && <ChevronRight size={14} className="text-muted-foreground" />}
@@ -232,18 +262,15 @@ export default function CheckoutClient() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left: steps */}
         <div className="lg:col-span-2 space-y-6">
 
           {/* STEP: Address */}
           {step === "address" && (
             <div className="bg-white rounded-2xl border border-border p-6">
               <h2 className="font-playfair text-xl font-bold mb-5 flex items-center gap-2">
-                <MapPin size={20} className="text-brand-500" />
-                Delivery Address
+                <MapPin size={20} className="text-brand-500" /> Delivery Address
               </h2>
 
-              {/* Saved addresses */}
               {savedAddresses.length > 0 && (
                 <div className="mb-5 space-y-2">
                   <p className="text-sm font-medium text-muted-foreground mb-2">Saved addresses</p>
@@ -251,13 +278,9 @@ export default function CheckoutClient() {
                     <label key={addr.id} className={`flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${
                       selectedAddressId === addr.id ? "border-brand-500 bg-brand-50" : "border-border hover:border-brand-200"
                     }`}>
-                      <input
-                        type="radio"
-                        name="address"
-                        checked={selectedAddressId === addr.id}
+                      <input type="radio" name="address" checked={selectedAddressId === addr.id}
                         onChange={() => { setSelectedAddressId(addr.id); populateFormFromAddress(addr); }}
-                        className="mt-1 accent-brand-500"
-                      />
+                        className="mt-1 accent-brand-500" />
                       <div className="text-sm">
                         <p className="font-semibold">{addr.full_name}</p>
                         <p className="text-muted-foreground">{addr.address_line1}, {addr.city} {addr.pincode}</p>
@@ -265,13 +288,13 @@ export default function CheckoutClient() {
                       </div>
                     </label>
                   ))}
-                  <p className="text-sm text-brand-600 font-medium cursor-pointer mt-1" onClick={() => setSelectedAddressId(null)}>
+                  <p className="text-sm text-brand-600 font-medium cursor-pointer mt-1"
+                    onClick={() => setSelectedAddressId(null)}>
                     + Use a different address
                   </p>
                 </div>
               )}
 
-              {/* Address form */}
               {(!selectedAddressId || savedAddresses.length === 0) && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {[
@@ -287,21 +310,17 @@ export default function CheckoutClient() {
                       <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
                         {label}
                       </label>
-                      <input
-                        type="text"
-                        value={form[key as keyof AddressForm]}
+                      <input type="text" value={form[key as keyof AddressForm]}
                         onChange={(e) => {
                           setForm((f) => ({ ...f, [key]: e.target.value }));
                           if (key === "pincode") handlePincodeCheck(e.target.value);
                         }}
-                        className="w-full px-4 py-2.5 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
-                      />
+                        className="w-full px-4 py-2.5 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
                     </div>
                   ))}
                 </div>
               )}
 
-              {/* Pincode validation result */}
               {form.pincode.length === 6 && (
                 <div className={`mt-4 p-3 rounded-xl text-sm flex items-center gap-2 ${
                   pincodeLoading ? "bg-accent text-muted-foreground" :
@@ -313,8 +332,7 @@ export default function CheckoutClient() {
                   {pincodeLoading ? "Checking delivery availability..." :
                    !pincodeData ? "Sorry, we don't deliver to this pincode yet." :
                    pincodeData.delivery_type === "not_available" ? "Delivery not available for this pincode." :
-                   `Delivery available to ${pincodeData.area}. ${pincodeData.is_bandra && subtotal >= 499 ? "Free delivery!" : `Charge: ₹${pincodeData.delivery_charge}`}`
-                  }
+                   `Delivery available to ${pincodeData.area}. ${pincodeData.is_bandra && subtotal >= 499 ? "Free delivery!" : `Charge: ₹${pincodeData.delivery_charge}`}`}
                 </div>
               )}
 
@@ -339,23 +357,15 @@ export default function CheckoutClient() {
           {step === "payment" && (
             <div className="bg-white rounded-2xl border border-border p-6">
               <h2 className="font-playfair text-xl font-bold mb-5 flex items-center gap-2">
-                <CreditCard size={20} className="text-brand-500" />
-                Payment Method
+                <CreditCard size={20} className="text-brand-500" /> Payment Method
               </h2>
 
               <div className="space-y-3 mb-6">
-                {/* COD */}
                 <label className={`flex items-center gap-4 p-4 rounded-xl border-2 cursor-pointer transition-colors ${
                   paymentMethod === "cod" ? "border-brand-500 bg-brand-50" : "border-border hover:border-brand-200"
                 }`}>
-                  <input
-                    type="radio"
-                    name="payment"
-                    value="cod"
-                    checked={paymentMethod === "cod"}
-                    onChange={() => setPaymentMethod("cod")}
-                    className="accent-brand-500"
-                  />
+                  <input type="radio" name="payment" value="cod" checked={paymentMethod === "cod"}
+                    onChange={() => setPaymentMethod("cod")} className="accent-brand-500" />
                   <div className="flex-1">
                     <p className="font-semibold text-sm">Cash on Delivery</p>
                     <p className="text-muted-foreground text-xs mt-0.5">Pay when your order arrives</p>
@@ -363,21 +373,14 @@ export default function CheckoutClient() {
                   <Truck size={20} className="text-muted-foreground" />
                 </label>
 
-                {/* Razorpay */}
                 <div className={`flex items-center gap-4 p-4 rounded-xl border-2 transition-colors ${
                   razorpayEnabled
                     ? paymentMethod === "razorpay" ? "border-brand-500 bg-brand-50 cursor-pointer" : "border-border hover:border-brand-200 cursor-pointer"
                     : "border-border bg-accent opacity-60 cursor-not-allowed"
                 }`}>
                   {razorpayEnabled ? (
-                    <input
-                      type="radio"
-                      name="payment"
-                      value="razorpay"
-                      checked={paymentMethod === "razorpay"}
-                      onChange={() => setPaymentMethod("razorpay")}
-                      className="accent-brand-500"
-                    />
+                    <input type="radio" name="payment" value="razorpay" checked={paymentMethod === "razorpay"}
+                      onChange={() => setPaymentMethod("razorpay")} className="accent-brand-500" />
                   ) : (
                     <div className="w-4 h-4 rounded-full border-2 border-muted-foreground" />
                   )}
@@ -385,9 +388,7 @@ export default function CheckoutClient() {
                     <p className="font-semibold text-sm flex items-center gap-2">
                       Online Payment
                       {!razorpayEnabled && (
-                        <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                          Coming Soon
-                        </span>
+                        <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full">Coming Soon</span>
                       )}
                     </p>
                     <p className="text-muted-foreground text-xs mt-0.5">
@@ -401,8 +402,7 @@ export default function CheckoutClient() {
               {/* Coupon */}
               <div className="border-t border-border pt-5 mb-6">
                 <p className="text-sm font-semibold mb-3 flex items-center gap-2">
-                  <Tag size={15} className="text-brand-500" />
-                  Apply Coupon
+                  <Tag size={15} className="text-brand-500" /> Apply Coupon
                 </p>
                 {couponData ? (
                   <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-3">
@@ -411,8 +411,7 @@ export default function CheckoutClient() {
                       <p className="text-green-600 text-xs">
                         {couponData.discount_type === "percentage"
                           ? `${couponData.discount_value}% off`
-                          : `₹${couponData.discount_value} off`}
-                        {" applied"}
+                          : `₹${couponData.discount_value} off`} applied
                       </p>
                     </div>
                     <button onClick={() => { setCouponData(null); setCouponCode(""); }}>
@@ -421,18 +420,12 @@ export default function CheckoutClient() {
                   </div>
                 ) : (
                   <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={couponCode}
+                    <input type="text" value={couponCode}
                       onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
                       placeholder="Enter coupon code"
-                      className="flex-1 px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
-                    />
-                    <button
-                      onClick={applyCoupon}
-                      disabled={couponLoading}
-                      className="px-5 py-2.5 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50"
-                    >
+                      className="flex-1 px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
+                    <button onClick={applyCoupon} disabled={couponLoading}
+                      className="px-5 py-2.5 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
                       {couponLoading ? "..." : "Apply"}
                     </button>
                   </div>
@@ -440,16 +433,12 @@ export default function CheckoutClient() {
               </div>
 
               <div className="flex gap-3">
-                <button
-                  onClick={() => setStep("address")}
-                  className="flex-1 py-3.5 rounded-xl border border-border text-sm font-medium hover:bg-accent transition-colors"
-                >
+                <button onClick={() => setStep("address")}
+                  className="flex-1 py-3.5 rounded-xl border border-border text-sm font-medium hover:bg-accent transition-colors">
                   Back
                 </button>
-                <button
-                  onClick={() => setStep("confirm")}
-                  className="flex-1 bg-brand-500 hover:bg-brand-600 text-white font-semibold py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2"
-                >
+                <button onClick={() => setStep("confirm")}
+                  className="flex-1 bg-brand-500 hover:bg-brand-600 text-white font-semibold py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2">
                   Review Order <ChevronRight size={18} />
                 </button>
               </div>
@@ -460,8 +449,7 @@ export default function CheckoutClient() {
           {step === "confirm" && (
             <div className="bg-white rounded-2xl border border-border p-6">
               <h2 className="font-playfair text-xl font-bold mb-5 flex items-center gap-2">
-                <CheckCircle size={20} className="text-brand-500" />
-                Review Your Order
+                <CheckCircle size={20} className="text-brand-500" /> Review Your Order
               </h2>
 
               {/* Delivery address summary */}
@@ -491,15 +479,28 @@ export default function CheckoutClient() {
                 ))}
               </div>
 
+              {/* ── SPECIAL REQUESTS ── */}
+              <div className="mb-5">
+                <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
+                  Special Requests (Optional)
+                </label>
+                <textarea
+                  value={specialRequests}
+                  onChange={(e) => setSpecialRequests(e.target.value)}
+                  placeholder="Any special instructions, allergies, or requests for your order..."
+                  rows={3}
+                  className="w-full px-4 py-3 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 resize-none"
+                />
+              </div>
+              {/* ── END SPECIAL REQUESTS ── */}
+
               <div className="flex gap-3">
-                <button onClick={() => setStep("payment")} className="flex-1 py-3.5 rounded-xl border border-border text-sm font-medium hover:bg-accent transition-colors">
+                <button onClick={() => setStep("payment")}
+                  className="flex-1 py-3.5 rounded-xl border border-border text-sm font-medium hover:bg-accent transition-colors">
                   Back
                 </button>
-                <button
-                  onClick={placeOrder}
-                  disabled={placing}
-                  className="flex-1 bg-brand-500 hover:bg-brand-600 text-white font-semibold py-3.5 rounded-xl transition-colors disabled:opacity-70"
-                >
+                <button onClick={placeOrder} disabled={placing}
+                  className="flex-1 bg-brand-500 hover:bg-brand-600 text-white font-semibold py-3.5 rounded-xl transition-colors disabled:opacity-70">
                   {placing ? "Placing Order..." : `Place Order · ${formatPrice(total)}`}
                 </button>
               </div>

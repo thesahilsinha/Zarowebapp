@@ -77,6 +77,7 @@ export interface Order {
   coupon_code: string | null
   notes: string | null
   created_at: string
+  
 }
 
 export interface OrderItem {

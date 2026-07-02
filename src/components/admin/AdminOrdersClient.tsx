@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import { Search, ChevronDown, ChevronUp } from "lucide-react";
 
-const STATUSES = ["pending","confirmed","dispatched","out_for_delivery","delivered","cancelled"];
+const STATUSES = ["pending", "confirmed", "dispatched", "out_for_delivery", "delivered", "cancelled"];
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-amber-100 text-amber-700",
@@ -36,8 +36,33 @@ export default function AdminOrdersClient({ orders }: { orders: any[] }) {
     setUpdating(orderId);
     const supabase = createClient();
     const { error } = await supabase.from("orders").update({ status }).eq("id", orderId);
-    if (error) toast.error("Failed to update status");
-    else { toast.success("Status updated"); router.refresh(); }
+    if (error) { toast.error("Failed to update status"); setUpdating(null); return; }
+
+    const order = orders.find((o) => o.id === orderId);
+    if (order && order.profiles?.email) {
+      try {
+        await fetch("/api/email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "status",
+            order: {
+              order_number: order.order_number,
+              customer_name: order.profiles.full_name || "Customer",
+              customer_email: order.profiles.email,
+              status,
+              total: order.total,
+              items: order.items || [],
+            },
+          }),
+        });
+      } catch (e) {
+        console.error("Status email error:", e);
+      }
+    }
+
+    toast.success("Status updated");
+    router.refresh();
     setUpdating(null);
   };
 
@@ -131,11 +156,10 @@ export default function AdminOrdersClient({ orders }: { orders: any[] }) {
                         key={s}
                         onClick={() => updateStatus(order.id, s)}
                         disabled={order.status === s || updating === order.id}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                          order.status === s
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${order.status === s
                             ? STATUS_COLORS[s] + " opacity-100 cursor-default"
                             : "bg-accent hover:bg-brand-100 text-foreground"
-                        }`}
+                          }`}
                       >
                         {updating === order.id ? "..." : s.replace("_", " ")}
                       </button>
