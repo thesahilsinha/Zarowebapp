@@ -91,7 +91,7 @@ export default function Footer() {
             </ul>
             <div className="mt-6">
               
-                <a href="https://instagram.com/zarobakehouse"
+                <a href="https://www.instagram.com/zaro.bakehouse/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 text-white/60 hover:text-white transition-colors text-sm"

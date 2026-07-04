@@ -213,7 +213,7 @@ export default function AdminProductsClient({ products, categories }: any) {
                 {[
                   { key: "is_best_seller", label: "Best Seller" },
                   { key: "is_treat_of_day", label: "Treat of the Day" },
-                  { key: "is_active", label: "Active" },{ key: "is_hamper_eligible", label: "Hamper Eligible" },
+                  { key: "is_active", label: "Active" }, { key: "is_hamper_eligible", label: "Hamper Eligible" },
                 ].map(({ key, label }) => (
                   <label key={key} className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" checked={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.checked })} className="accent-brand-500 w-4 h-4" />
@@ -279,6 +279,7 @@ export default function AdminProductsClient({ products, categories }: any) {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <button onClick={() => openEdit(product)} className="p-1.5 rounded-lg hover:bg-blue-50 text-muted-foreground hover:text-blue-600 transition-colors">
+
                         <Edit2 size={15} />
                       </button>
                       <button onClick={() => handleDelete(product.id)} disabled={deleting === product.id} className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors">
