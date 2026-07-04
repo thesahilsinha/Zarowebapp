@@ -15,12 +15,14 @@ export default function AdminProductsClient({ products, categories }: any) {
   const [deleting, setDeleting] = useState<string | null>(null);
 
   const empty = {
-    name: "", slug: "", description: "", category_id: "",
-    price: "", discount_price: "", type: "regular",
-    is_best_seller: false, is_treat_of_day: false, is_active: true,
-    rating: "4.5", rating_count: "0", stock: "100",
-    images: ["", "", "", ""],
-  };
+  name: "", slug: "", description: "", category_id: "",
+  price: "", discount_price: "", type: "regular",
+  is_best_seller: false, is_treat_of_day: false, is_active: true,
+  is_hamper_eligible: false,
+  rating: "4.5", rating_count: "0", stock: "100",
+  video_url: "",
+  images: ["", "", "", ""],
+};
   const [form, setForm] = useState<any>(empty);
 
   const openCreate = () => { setForm(empty); setEditing(null); setShowForm(true); };
