@@ -7,6 +7,28 @@ import { Plus, Edit2, Trash2, Search, Star, Zap, X } from "lucide-react";
 import { formatPrice, slugify } from "@/lib/utils";
 import toast from "react-hot-toast";
 
+function normalizeImages(raw: any): string[] {
+  let arr: any = raw;
+
+  // If Supabase returned it as a JSON string, parse it
+  if (typeof arr === "string") {
+    try {
+      arr = JSON.parse(arr);
+    } catch {
+      arr = [arr]; // it was just a plain string URL
+    }
+  }
+
+  // If it's still not an array (e.g. an object), wrap/default it
+  if (!Array.isArray(arr)) {
+    arr = arr ? Object.values(arr) : [];
+  }
+
+  const imgs = [...arr].filter((v) => typeof v === "string");
+  while (imgs.length < 4) imgs.push("");
+  return imgs.slice(0, 4);
+}
+
 export default function AdminProductsClient({ products, categories }: any) {
   const router = useRouter();
   const [search, setSearch] = useState("");
@@ -33,9 +55,7 @@ export default function AdminProductsClient({ products, categories }: any) {
   };
 
   const openEdit = (p: any) => {
-    console.log("openEdit called for:", p?.id, p?.name); // TEMP: remove once confirmed working
-    const imgs = [...(p.images || [])];
-    while (imgs.length < 4) imgs.push("");
+    const imgs = normalizeImages(p.images);
     setForm({
       ...p,
       price: String(p.price),
