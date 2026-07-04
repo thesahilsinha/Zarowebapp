@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { Plus, Edit2, Trash2, Search, Star, Zap, X } from "lucide-react";
@@ -15,27 +16,44 @@ export default function AdminProductsClient({ products, categories }: any) {
   const [deleting, setDeleting] = useState<string | null>(null);
 
   const empty = {
-  name: "", slug: "", description: "", category_id: "",
-  price: "", discount_price: "", type: "regular",
-  is_best_seller: false, is_treat_of_day: false, is_active: true,
-  is_hamper_eligible: false,
-  rating: "4.5", rating_count: "0", stock: "100",
-  video_url: "",
-  images: ["", "", "", ""],
-};
+    name: "", slug: "", description: "", category_id: "",
+    price: "", discount_price: "", type: "regular",
+    is_best_seller: false, is_treat_of_day: false, is_active: true,
+    is_hamper_eligible: false,
+    rating: "4.5", rating_count: "0", stock: "100",
+    video_url: "",
+    images: ["", "", "", ""],
+  };
   const [form, setForm] = useState<any>(empty);
 
-  const openCreate = () => { setForm(empty); setEditing(null); setShowForm(true); };
+  const openCreate = () => {
+    setForm(empty);
+    setEditing(null);
+    setShowForm(true);
+  };
+
   const openEdit = (p: any) => {
+    console.log("openEdit called for:", p?.id, p?.name); // TEMP: remove once confirmed working
     const imgs = [...(p.images || [])];
     while (imgs.length < 4) imgs.push("");
-    setForm({ ...p, price: String(p.price), discount_price: String(p.discount_price || ""), rating: String(p.rating), rating_count: String(p.rating_count), stock: String(p.stock), images: imgs });
+    setForm({
+      ...p,
+      price: String(p.price),
+      discount_price: String(p.discount_price || ""),
+      rating: String(p.rating),
+      rating_count: String(p.rating_count),
+      stock: String(p.stock),
+      images: imgs,
+    });
     setEditing(p);
     setShowForm(true);
   };
 
   const handleSave = async () => {
-    if (!form.name || !form.price) { toast.error("Name and price required"); return; }
+    if (!form.name || !form.price) {
+      toast.error("Name and price required");
+      return;
+    }
     setSaving(true);
     const supabase = createClient();
     const payload = {
@@ -59,11 +77,19 @@ export default function AdminProductsClient({ products, categories }: any) {
 
     if (editing) {
       const { error } = await supabase.from("products").update(payload).eq("id", editing.id);
-      if (error) { toast.error("Failed to update"); setSaving(false); return; }
+      if (error) {
+        toast.error("Failed to update");
+        setSaving(false);
+        return;
+      }
       toast.success("Product updated!");
     } else {
       const { error } = await supabase.from("products").insert(payload);
-      if (error) { toast.error(error.message); setSaving(false); return; }
+      if (error) {
+        toast.error(error.message);
+        setSaving(false);
+        return;
+      }
       toast.success("Product created!");
     }
 
@@ -92,6 +118,129 @@ export default function AdminProductsClient({ products, categories }: any) {
     p.name.toLowerCase().includes(search.toLowerCase())
   );
 
+  const modal = showForm ? (
+    <div className="fixed inset-0 bg-black/50 z-[9999] flex items-start justify-center overflow-y-auto py-8 px-4">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2 className="font-playfair font-bold text-xl">{editing ? "Edit Product" : "New Product"}</h2>
+          <button onClick={() => setShowForm(false)} className="p-2 rounded-xl hover:bg-accent transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Name *</label>
+              <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value, slug: slugify(e.target.value) })}
+                className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Slug</label>
+              <input type="text" value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })}
+                className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Description</label>
+              <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
+                rows={3} className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 resize-none" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Price (₹) *</label>
+              <input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })}
+                className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Discount Price (₹)</label>
+              <input type="number" value={form.discount_price} onChange={(e) => setForm({ ...form, discount_price: e.target.value })}
+                className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Category</label>
+              <select value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })}
+                className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
+                <option value="">No category</option>
+                {categories.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Type</label>
+              <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}
+                className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
+                <option value="regular">Regular</option>
+                <option value="freshly_bakes">Freshly Baked</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Stock</label>
+              <input type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })}
+                className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Rating</label>
+              <input type="number" step="0.1" min="1" max="5" value={form.rating} onChange={(e) => setForm({ ...form, rating: e.target.value })}
+                className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Rating Count</label>
+              <input type="number" value={form.rating_count} onChange={(e) => setForm({ ...form, rating_count: e.target.value })}
+                className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
+            </div>
+          </div>
+
+          {/* Images */}
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Image URLs (up to 4)</label>
+            <div className="space-y-2">
+              {form.images.map((img: string, i: number) => (
+                <input key={i} type="text" value={img}
+                  onChange={(e) => { const imgs = [...form.images]; imgs[i] = e.target.value; setForm({ ...form, images: imgs }); }}
+                  placeholder={`Image ${i + 1} URL`}
+                  className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+              Video URL (Optional)
+            </label>
+            <input
+              type="text"
+              value={form.video_url || ""}
+              onChange={(e) => setForm({ ...form, video_url: e.target.value })}
+              placeholder="YouTube or direct video link"
+              className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
+            />
+            <p className="text-xs text-muted-foreground mt-1">Paste a YouTube link or direct .mp4 URL</p>
+          </div>
+
+          {/* Flags */}
+          <div className="flex flex-wrap gap-4">
+            {[
+              { key: "is_best_seller", label: "Best Seller" },
+              { key: "is_treat_of_day", label: "Treat of the Day" },
+              { key: "is_active", label: "Active" }, { key: "is_hamper_eligible", label: "Hamper Eligible" },
+            ].map(({ key, label }) => (
+              <label key={key} className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.checked })} className="accent-brand-500 w-4 h-4" />
+                <span className="text-sm font-medium">{label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="px-6 py-4 border-t border-border flex gap-3 justify-end">
+          <button onClick={() => setShowForm(false)} className="px-5 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-accent transition-colors">
+            Cancel
+          </button>
+          <button onClick={handleSave} disabled={saving} className="px-6 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold transition-colors disabled:opacity-60">
+            {saving ? "Saving..." : editing ? "Update Product" : "Create Product"}
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
@@ -113,129 +262,8 @@ export default function AdminProductsClient({ products, categories }: any) {
         />
       </div>
 
-      {/* Form modal */}
-      {showForm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center overflow-y-auto py-8 px-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-              <h2 className="font-playfair font-bold text-xl">{editing ? "Edit Product" : "New Product"}</h2>
-              <button onClick={() => setShowForm(false)} className="p-2 rounded-xl hover:bg-accent transition-colors">
-                <X size={18} />
-              </button>
-            </div>
-            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Name *</label>
-                  <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value, slug: slugify(e.target.value) })}
-                    className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Slug</label>
-                  <input type="text" value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Description</label>
-                  <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
-                    rows={3} className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 resize-none" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Price (₹) *</label>
-                  <input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Discount Price (₹)</label>
-                  <input type="number" value={form.discount_price} onChange={(e) => setForm({ ...form, discount_price: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Category</label>
-                  <select value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
-                    <option value="">No category</option>
-                    {categories.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Type</label>
-                  <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white">
-                    <option value="regular">Regular</option>
-                    <option value="freshly_bakes">Freshly Baked</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Stock</label>
-                  <input type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Rating</label>
-                  <input type="number" step="0.1" min="1" max="5" value={form.rating} onChange={(e) => setForm({ ...form, rating: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Rating Count</label>
-                  <input type="number" value={form.rating_count} onChange={(e) => setForm({ ...form, rating_count: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
-                </div>
-              </div>
-
-              {/* Images */}
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Image URLs (up to 4)</label>
-                <div className="space-y-2">
-                  {form.images.map((img: string, i: number) => (
-                    <input key={i} type="text" value={img}
-                      onChange={(e) => { const imgs = [...form.images]; imgs[i] = e.target.value; setForm({ ...form, images: imgs }); }}
-                      placeholder={`Image ${i + 1} URL`}
-                      className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
-                  Video URL (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={form.video_url || ""}
-                  onChange={(e) => setForm({ ...form, video_url: e.target.value })}
-                  placeholder="YouTube or direct video link"
-                  className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
-                />
-                <p className="text-xs text-muted-foreground mt-1">Paste a YouTube link or direct .mp4 URL</p>
-              </div>
-
-              {/* Flags */}
-              <div className="flex flex-wrap gap-4">
-                {[
-                  { key: "is_best_seller", label: "Best Seller" },
-                  { key: "is_treat_of_day", label: "Treat of the Day" },
-                  { key: "is_active", label: "Active" }, { key: "is_hamper_eligible", label: "Hamper Eligible" },
-                ].map(({ key, label }) => (
-                  <label key={key} className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.checked })} className="accent-brand-500 w-4 h-4" />
-                    <span className="text-sm font-medium">{label}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div className="px-6 py-4 border-t border-border flex gap-3 justify-end">
-              <button onClick={() => setShowForm(false)} className="px-5 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-accent transition-colors">
-                Cancel
-              </button>
-              <button onClick={handleSave} disabled={saving} className="px-6 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold transition-colors disabled:opacity-60">
-                {saving ? "Saving..." : editing ? "Update Product" : "Create Product"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Modal rendered via portal so it can't get trapped by a transformed/overflow ancestor */}
+      {typeof document !== "undefined" && modal ? createPortal(modal, document.body) : null}
 
       {/* Products table */}
       <div className="bg-white rounded-2xl border border-border overflow-hidden">
@@ -280,11 +308,19 @@ export default function AdminProductsClient({ products, categories }: any) {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <button onClick={() => openEdit(product)} className="p-1.5 rounded-lg hover:bg-blue-50 text-muted-foreground hover:text-blue-600 transition-colors">
-
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); openEdit(product); }}
+                        className="p-1.5 rounded-lg hover:bg-blue-50 text-muted-foreground hover:text-blue-600 transition-colors relative z-10"
+                      >
                         <Edit2 size={15} />
                       </button>
-                      <button onClick={() => handleDelete(product.id)} disabled={deleting === product.id} className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleDelete(product.id); }}
+                        disabled={deleting === product.id}
+                        className="p-1.5 rounded-lg hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors relative z-10"
+                      >
                         <Trash2 size={15} />
                       </button>
                     </div>
