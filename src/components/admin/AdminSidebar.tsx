@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ShoppingBag, Package, Tag,
   Users, MapPin, Ticket, FileText, Settings,
-  Image, LogOut, ChevronRight
+  Image, LogOut, ChevronRight, Gift
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
@@ -18,10 +18,12 @@ const NAV = [
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/banners", label: "Banners", icon: Image },
   { href: "/admin/coupons", label: "Coupons", icon: Ticket },
+  { href: "/admin/gift-cards", label: "Gift Cards", icon: Gift },
   { href: "/admin/pincodes", label: "Pincodes", icon: MapPin },
   { href: "/admin/tickets", label: "Help Desk", icon: FileText },
   { href: "/admin/blog", label: "Blog", icon: FileText },
   { href: "/admin/settings", label: "Settings", icon: Settings },
+
 ];
 
 export default function AdminSidebar() {

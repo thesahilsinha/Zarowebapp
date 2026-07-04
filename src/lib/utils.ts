@@ -65,3 +65,8 @@ export function calculateDiscount(
   return Math.round(((price - discountPrice) / price) * 100)
 }
 
+export function generateGiftCardCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const random = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+  return `ZARO${random}`;
+}

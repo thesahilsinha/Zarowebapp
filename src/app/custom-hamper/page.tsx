@@ -12,6 +12,7 @@ export default async function CustomHamperPage() {
     .from("products")
     .select("*")
     .eq("is_active", true)
+    .eq("is_hamper_eligible", true)
     .order("name");
 
   return (

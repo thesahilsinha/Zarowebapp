@@ -4,34 +4,24 @@ import { useRouter } from "next/navigation";
 import { useCart } from "@/contexts/CartContext";
 import { createClient } from "@/lib/supabase/client";
 import { formatPrice, generateOrderNumber } from "@/lib/utils";
-import { MapPin, CreditCard, Truck, CheckCircle, ChevronRight, Tag, X } from "lucide-react";
+import { MapPin, CreditCard, Truck, CheckCircle, ChevronRight, Tag, X, Gift } from "lucide-react";
 import toast from "react-hot-toast";
 
-type Step = "address" | "delivery" | "payment" | "confirm";
+type Step = "address" | "payment" | "confirm";
 
 interface AddressForm {
-  full_name: string;
-  phone: string;
-  address_line1: string;
-  address_line2: string;
-  landmark: string;
-  pincode: string;
-  city: string;
-  state: string;
+  full_name: string; phone: string; address_line1: string;
+  address_line2: string; landmark: string; pincode: string;
+  city: string; state: string;
 }
 
 interface PincodeData {
-  pincode: string;
-  area: string;
-  delivery_type: string;
-  delivery_charge: number;
-  is_bandra: boolean;
-  delivery_time_hours: number;
+  pincode: string; area: string; delivery_type: string;
+  delivery_charge: number; is_bandra: boolean; delivery_time_hours: number;
 }
 
 const STEPS: { key: Step; label: string }[] = [
   { key: "address", label: "Address" },
-  { key: "delivery", label: "Delivery" },
   { key: "payment", label: "Payment" },
   { key: "confirm", label: "Confirm" },
 ];
@@ -48,12 +38,13 @@ export default function CheckoutClient() {
   const [couponCode, setCouponCode] = useState("");
   const [couponData, setCouponData] = useState<any>(null);
   const [couponLoading, setCouponLoading] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<"cod" | "razorpay">("cod");
+  const [paymentMethod, setPaymentMethod] = useState<"cod" | "razorpay" | "gift_card">("cod");
   const [razorpayEnabled, setRazorpayEnabled] = useState(false);
   const [placing, setPlacing] = useState(false);
-
-  // ── SPECIAL REQUESTS STATE ──
   const [specialRequests, setSpecialRequests] = useState("");
+  const [giftCardCode, setGiftCardCode] = useState("");
+  const [giftCardData, setGiftCardData] = useState<any>(null);
+  const [giftCardLoading, setGiftCardLoading] = useState(false);
 
   const [form, setForm] = useState<AddressForm>({
     full_name: "", phone: "", address_line1: "",
@@ -68,7 +59,7 @@ export default function CheckoutClient() {
       setUser(user);
       supabase.from("addresses").select("*").eq("user_id", user.id).then(({ data }) => {
         setSavedAddresses(data || []);
-        const def = data?.find((a) => a.is_default);
+        const def = data?.find((a: any) => a.is_default);
         if (def) { setSelectedAddressId(def.id); populateFormFromAddress(def); }
       });
     });
@@ -106,10 +97,8 @@ export default function CheckoutClient() {
     if (!couponCode.trim()) return;
     setCouponLoading(true);
     const supabase = createClient();
-    const { data: coupon } = await supabase
-      .from("coupons").select("*")
-      .eq("code", couponCode.toUpperCase())
-      .eq("is_active", true).single();
+    const { data: coupon } = await supabase.from("coupons").select("*")
+      .eq("code", couponCode.toUpperCase()).eq("is_active", true).single();
     if (!coupon) { toast.error("Invalid coupon code"); setCouponLoading(false); return; }
     if (coupon.valid_until && new Date(coupon.valid_until) < new Date()) {
       toast.error("Coupon has expired"); setCouponLoading(false); return;
@@ -125,6 +114,26 @@ export default function CheckoutClient() {
     setCouponLoading(false);
   };
 
+  const applyGiftCard = async () => {
+    if (!giftCardCode.trim()) return;
+    setGiftCardLoading(true);
+    try {
+      const res = await fetch("/api/gift-cards/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: giftCardCode }),
+      });
+      const data = await res.json();
+      if (!data.valid) { toast.error(data.message || "Invalid gift card"); setGiftCardLoading(false); return; }
+      setGiftCardData(data.giftCard);
+      setPaymentMethod("gift_card");
+      toast.success(`Gift card applied! ₹${data.amount} credit`);
+    } catch {
+      toast.error("Failed to validate gift card");
+    }
+    setGiftCardLoading(false);
+  };
+
   const discount = (() => {
     if (!couponData) return 0;
     if (couponData.discount_type === "percentage") {
@@ -134,7 +143,8 @@ export default function CheckoutClient() {
     return couponData.discount_value;
   })();
 
-  const total = subtotal + Math.max(0, deliveryCharge) - discount;
+  const giftCardDiscount = giftCardData ? Math.min(giftCardData.amount, subtotal + Math.max(0, deliveryCharge) - discount) : 0;
+  const total = Math.max(0, subtotal + Math.max(0, deliveryCharge) - discount - giftCardDiscount);
 
   const placeOrder = async () => {
     if (!user) return;
@@ -145,8 +155,7 @@ export default function CheckoutClient() {
     const deliveryAddress = {
       full_name: form.full_name, phone: form.phone,
       address_line1: form.address_line1, address_line2: form.address_line2,
-      landmark: form.landmark, city: form.city,
-      state: form.state, pincode: form.pincode,
+      landmark: form.landmark, city: form.city, state: form.state, pincode: form.pincode,
     };
 
     const orderItems = items.map((item) => ({
@@ -172,6 +181,8 @@ export default function CheckoutClient() {
       pincode: form.pincode,
       coupon_code: couponData?.code || null,
       special_requests: specialRequests || null,
+      gift_card_code: giftCardData?.code || null,
+      gift_card_discount: giftCardDiscount,
     }).select().single();
 
     if (error || !order) {
@@ -179,20 +190,25 @@ export default function CheckoutClient() {
       setPlacing(false); return;
     }
 
-    // Clear cart
+    // Redeem gift card
+    if (giftCardData) {
+      await fetch("/api/gift-cards/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: giftCardData.code, order_number: orderNumber }),
+      });
+    }
+
+    // Clear cart + update coupon
     await supabase.from("carts").delete().eq("user_id", user.id);
     await refreshCart();
-
-    // Update coupon usage
     if (couponData) {
       await supabase.from("coupons").update({ used_count: couponData.used_count + 1 }).eq("id", couponData.id);
     }
 
-    // ── SEND ORDER PLACED EMAIL ──
+    // Send email
     try {
-      const { data: profile } = await supabase
-        .from("profiles").select("full_name, email").eq("id", user.id).single();
-
+      const { data: profile } = await supabase.from("profiles").select("full_name, email").eq("id", user.id).single();
       await fetch("/api/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -206,7 +222,7 @@ export default function CheckoutClient() {
             subtotal,
             delivery_charge: Math.max(0, deliveryCharge),
             discount,
-            gift_card_discount: 0,
+            gift_card_discount: giftCardDiscount,
             total,
             delivery_address: deliveryAddress,
             payment_method: paymentMethod,
@@ -214,10 +230,7 @@ export default function CheckoutClient() {
           },
         }),
       });
-    } catch (e) {
-      console.error("Email send failed:", e);
-    }
-    // ── END EMAIL ──
+    } catch (e) { console.error("Email failed:", e); }
 
     toast.success("Order placed successfully!");
     router.push(`/dashboard/orders?success=${order.order_number}`);
@@ -243,7 +256,7 @@ export default function CheckoutClient() {
     <div className="max-w-6xl mx-auto px-4 py-8">
       <h1 className="font-playfair text-3xl font-bold mb-8">Checkout</h1>
 
-      {/* Step indicator */}
+      {/* Steps */}
       <div className="flex items-center gap-2 mb-10 overflow-x-auto scrollbar-hide">
         {STEPS.map((s, i) => (
           <div key={s.key} className="flex items-center gap-2 flex-shrink-0">
@@ -251,9 +264,7 @@ export default function CheckoutClient() {
               s.key === step ? "bg-brand-500 text-white" :
               i < stepIndex ? "bg-green-100 text-green-700" : "bg-accent text-muted-foreground"
             }`}>
-              {i < stepIndex
-                ? <CheckCircle size={14} />
-                : <span className="w-4 h-4 rounded-full border-2 flex items-center justify-center text-xs">{i + 1}</span>}
+              {i < stepIndex ? <CheckCircle size={14} /> : <span className="w-4 h-4 rounded-full border-2 flex items-center justify-center text-xs">{i + 1}</span>}
               {s.label}
             </div>
             {i < STEPS.length - 1 && <ChevronRight size={14} className="text-muted-foreground" />}
@@ -264,7 +275,7 @@ export default function CheckoutClient() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">
 
-          {/* STEP: Address */}
+          {/* ADDRESS */}
           {step === "address" && (
             <div className="bg-white rounded-2xl border border-border p-6">
               <h2 className="font-playfair text-xl font-bold mb-5 flex items-center gap-2">
@@ -307,9 +318,7 @@ export default function CheckoutClient() {
                     { key: "city", label: "City", col: 1 },
                   ].map(({ key, label, col }) => (
                     <div key={key} className={col === 2 ? "sm:col-span-2" : ""}>
-                      <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
-                        {label}
-                      </label>
+                      <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">{label}</label>
                       <input type="text" value={form[key as keyof AddressForm]}
                         onChange={(e) => {
                           setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -329,31 +338,29 @@ export default function CheckoutClient() {
                   "bg-green-50 text-green-700"
                 }`}>
                   <Truck size={15} />
-                  {pincodeLoading ? "Checking delivery availability..." :
+                  {pincodeLoading ? "Checking delivery..." :
                    !pincodeData ? "Sorry, we don't deliver to this pincode yet." :
                    pincodeData.delivery_type === "not_available" ? "Delivery not available for this pincode." :
                    `Delivery available to ${pincodeData.area}. ${pincodeData.is_bandra && subtotal >= 499 ? "Free delivery!" : `Charge: ₹${pincodeData.delivery_charge}`}`}
                 </div>
               )}
 
-              <button
-                onClick={() => {
-                  if (!form.full_name || !form.phone || !form.address_line1 || !form.pincode) {
-                    toast.error("Please fill all required fields"); return;
-                  }
-                  if (pincodeData?.delivery_type === "not_available") {
-                    toast.error("Delivery not available for this pincode"); return;
-                  }
-                  setStep("payment");
-                }}
-                className="mt-6 w-full bg-brand-500 hover:bg-brand-600 text-white font-semibold py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2"
-              >
+              <button onClick={() => {
+                if (!form.full_name || !form.phone || !form.address_line1 || !form.pincode) {
+                  toast.error("Please fill all required fields"); return;
+                }
+                if (pincodeData?.delivery_type === "not_available") {
+                  toast.error("Delivery not available for this pincode"); return;
+                }
+                setStep("payment");
+              }}
+                className="mt-6 w-full bg-brand-500 hover:bg-brand-600 text-white font-semibold py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2">
                 Continue to Payment <ChevronRight size={18} />
               </button>
             </div>
           )}
 
-          {/* STEP: Payment */}
+          {/* PAYMENT */}
           {step === "payment" && (
             <div className="bg-white rounded-2xl border border-border p-6">
               <h2 className="font-playfair text-xl font-bold mb-5 flex items-center gap-2">
@@ -361,11 +368,13 @@ export default function CheckoutClient() {
               </h2>
 
               <div className="space-y-3 mb-6">
+                {/* COD */}
                 <label className={`flex items-center gap-4 p-4 rounded-xl border-2 cursor-pointer transition-colors ${
                   paymentMethod === "cod" ? "border-brand-500 bg-brand-50" : "border-border hover:border-brand-200"
                 }`}>
                   <input type="radio" name="payment" value="cod" checked={paymentMethod === "cod"}
-                    onChange={() => setPaymentMethod("cod")} className="accent-brand-500" />
+                    onChange={() => { setPaymentMethod("cod"); setGiftCardData(null); setGiftCardCode(""); }}
+                    className="accent-brand-500" />
                   <div className="flex-1">
                     <p className="font-semibold text-sm">Cash on Delivery</p>
                     <p className="text-muted-foreground text-xs mt-0.5">Pay when your order arrives</p>
@@ -373,29 +382,68 @@ export default function CheckoutClient() {
                   <Truck size={20} className="text-muted-foreground" />
                 </label>
 
+                {/* Razorpay */}
                 <div className={`flex items-center gap-4 p-4 rounded-xl border-2 transition-colors ${
                   razorpayEnabled
                     ? paymentMethod === "razorpay" ? "border-brand-500 bg-brand-50 cursor-pointer" : "border-border hover:border-brand-200 cursor-pointer"
                     : "border-border bg-accent opacity-60 cursor-not-allowed"
-                }`}>
-                  {razorpayEnabled ? (
-                    <input type="radio" name="payment" value="razorpay" checked={paymentMethod === "razorpay"}
-                      onChange={() => setPaymentMethod("razorpay")} className="accent-brand-500" />
-                  ) : (
-                    <div className="w-4 h-4 rounded-full border-2 border-muted-foreground" />
-                  )}
+                }`} onClick={() => razorpayEnabled && setPaymentMethod("razorpay")}>
+                  {razorpayEnabled
+                    ? <input type="radio" name="payment" value="razorpay" checked={paymentMethod === "razorpay"}
+                        onChange={() => { setPaymentMethod("razorpay"); setGiftCardData(null); setGiftCardCode(""); }}
+                        className="accent-brand-500" />
+                    : <div className="w-4 h-4 rounded-full border-2 border-muted-foreground" />
+                  }
                   <div className="flex-1">
                     <p className="font-semibold text-sm flex items-center gap-2">
                       Online Payment
-                      {!razorpayEnabled && (
-                        <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full">Coming Soon</span>
-                      )}
+                      {!razorpayEnabled && <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded-full">Coming Soon</span>}
                     </p>
                     <p className="text-muted-foreground text-xs mt-0.5">
                       {razorpayEnabled ? "UPI, Cards, Net Banking via Razorpay" : "Currently under review"}
                     </p>
                   </div>
                   <CreditCard size={20} className="text-muted-foreground" />
+                </div>
+
+                {/* Gift Card */}
+                <div className={`p-4 rounded-xl border-2 transition-colors ${
+                  paymentMethod === "gift_card" ? "border-brand-500 bg-brand-50" : "border-border"
+                }`}>
+                  <div className="flex items-center gap-4 mb-3">
+                    <div className="w-4 h-4 rounded-full border-2 border-brand-500 flex items-center justify-center flex-shrink-0">
+                      {paymentMethod === "gift_card" && <div className="w-2 h-2 bg-brand-500 rounded-full" />}
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-semibold text-sm flex items-center gap-2">
+                        <Gift size={15} className="text-brand-500" /> Gift Card
+                      </p>
+                      <p className="text-muted-foreground text-xs mt-0.5">Redeem your Zaro gift card</p>
+                    </div>
+                  </div>
+
+                  {giftCardData ? (
+                    <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+                      <div>
+                        <p className="text-green-700 font-bold text-sm font-mono">{giftCardData.code}</p>
+                        <p className="text-green-600 text-xs">₹{giftCardData.amount} credit applied</p>
+                      </div>
+                      <button onClick={() => { setGiftCardData(null); setGiftCardCode(""); setPaymentMethod("cod"); }}>
+                        <X size={16} className="text-green-600 hover:text-green-800" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input type="text" value={giftCardCode}
+                        onChange={(e) => setGiftCardCode(e.target.value.toUpperCase())}
+                        placeholder="Enter gift card code e.g. ZAROXXX123"
+                        className="flex-1 px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 font-mono" />
+                      <button onClick={applyGiftCard} disabled={giftCardLoading}
+                        className="px-5 py-2.5 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
+                        {giftCardLoading ? "..." : "Apply"}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -409,9 +457,7 @@ export default function CheckoutClient() {
                     <div>
                       <p className="text-green-700 font-semibold text-sm">{couponData.code}</p>
                       <p className="text-green-600 text-xs">
-                        {couponData.discount_type === "percentage"
-                          ? `${couponData.discount_value}% off`
-                          : `₹${couponData.discount_value} off`} applied
+                        {couponData.discount_type === "percentage" ? `${couponData.discount_value}% off` : `₹${couponData.discount_value} off`} applied
                       </p>
                     </div>
                     <button onClick={() => { setCouponData(null); setCouponCode(""); }}>
@@ -420,8 +466,7 @@ export default function CheckoutClient() {
                   </div>
                 ) : (
                   <div className="flex gap-2">
-                    <input type="text" value={couponCode}
-                      onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                    <input type="text" value={couponCode} onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
                       placeholder="Enter coupon code"
                       className="flex-1 px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400" />
                     <button onClick={applyCoupon} disabled={couponLoading}
@@ -445,14 +490,13 @@ export default function CheckoutClient() {
             </div>
           )}
 
-          {/* STEP: Confirm */}
+          {/* CONFIRM */}
           {step === "confirm" && (
             <div className="bg-white rounded-2xl border border-border p-6">
               <h2 className="font-playfair text-xl font-bold mb-5 flex items-center gap-2">
                 <CheckCircle size={20} className="text-brand-500" /> Review Your Order
               </h2>
 
-              {/* Delivery address summary */}
               <div className="bg-accent rounded-xl p-4 mb-5">
                 <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2">Delivering to</p>
                 <p className="font-semibold text-sm">{form.full_name}</p>
@@ -461,7 +505,6 @@ export default function CheckoutClient() {
                 <p className="text-sm text-muted-foreground">{form.phone}</p>
               </div>
 
-              {/* Items */}
               <div className="space-y-3 mb-5">
                 {items.map((item) => (
                   <div key={item.id} className="flex items-center gap-3">
@@ -479,20 +522,16 @@ export default function CheckoutClient() {
                 ))}
               </div>
 
-              {/* ── SPECIAL REQUESTS ── */}
+              {/* Special requests */}
               <div className="mb-5">
                 <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
                   Special Requests (Optional)
                 </label>
-                <textarea
-                  value={specialRequests}
-                  onChange={(e) => setSpecialRequests(e.target.value)}
-                  placeholder="Any special instructions, allergies, or requests for your order..."
+                <textarea value={specialRequests} onChange={(e) => setSpecialRequests(e.target.value)}
+                  placeholder="Any special instructions, allergies, packaging requests..."
                   rows={3}
-                  className="w-full px-4 py-3 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 resize-none"
-                />
+                  className="w-full px-4 py-3 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 resize-none" />
               </div>
-              {/* ── END SPECIAL REQUESTS ── */}
 
               <div className="flex gap-3">
                 <button onClick={() => setStep("payment")}
@@ -508,7 +547,7 @@ export default function CheckoutClient() {
           )}
         </div>
 
-        {/* Right: Order summary */}
+        {/* Order summary */}
         <div className="space-y-4">
           <div className="bg-white rounded-2xl border border-border p-5 sticky top-24">
             <h3 className="font-playfair font-bold text-lg mb-4">Order Summary</h3>
@@ -529,7 +568,6 @@ export default function CheckoutClient() {
                 );
               })}
             </div>
-
             <div className="border-t border-border pt-4 space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Subtotal</span>
@@ -543,8 +581,14 @@ export default function CheckoutClient() {
               </div>
               {discount > 0 && (
                 <div className="flex justify-between text-green-600">
-                  <span>Coupon Discount</span>
+                  <span>Coupon</span>
                   <span className="font-medium">-{formatPrice(discount)}</span>
+                </div>
+              )}
+              {giftCardDiscount > 0 && (
+                <div className="flex justify-between text-brand-600">
+                  <span>Gift Card</span>
+                  <span className="font-medium">-{formatPrice(giftCardDiscount)}</span>
                 </div>
               )}
               <div className="flex justify-between font-bold text-base pt-2 border-t border-border">

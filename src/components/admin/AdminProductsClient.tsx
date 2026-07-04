@@ -46,6 +46,7 @@ export default function AdminProductsClient({ products, categories }: any) {
       type: form.type,
       is_best_seller: form.is_best_seller,
       is_treat_of_day: form.is_treat_of_day,
+      is_hamper_eligible: form.is_hamper_eligible,
       is_active: form.is_active,
       rating: parseFloat(form.rating) || 4.5,
       rating_count: parseInt(form.rating_count) || 0,
@@ -212,7 +213,7 @@ export default function AdminProductsClient({ products, categories }: any) {
                 {[
                   { key: "is_best_seller", label: "Best Seller" },
                   { key: "is_treat_of_day", label: "Treat of the Day" },
-                  { key: "is_active", label: "Active" },
+                  { key: "is_active", label: "Active" },{ key: "is_hamper_eligible", label: "Hamper Eligible" },
                 ].map(({ key, label }) => (
                   <label key={key} className="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" checked={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.checked })} className="accent-brand-500 w-4 h-4" />

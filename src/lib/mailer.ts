@@ -222,3 +222,54 @@ export async function sendOrderStatusUpdate(order: any) {
     html,
   });
 }
+
+// ── GIFT CARD EMAIL ──────────────────────────────────────────────
+export async function sendGiftCardEmail(data: {
+  code: string;
+  amount: number;
+  recipient_name: string;
+  recipient_email: string;
+  sender_name?: string;
+  message?: string;
+}) {
+  const html = `<!DOCTYPE html><html><head>${BASE_STYLE}</head><body>
+    <div class="wrap">
+      <div class="header">
+        <h1>ZARO BAKEHOUSE</h1>
+        <p>BANDRA WEST · MUMBAI</p>
+      </div>
+      <div class="badge" style="background:#EA6D3A">
+        <p>You've received a Gift Card!</p>
+        <h2>₹${data.amount.toLocaleString("en-IN")}</h2>
+      </div>
+      <div class="body">
+        <p>Hi <strong>${data.recipient_name}</strong>,</p>
+        <p>${data.sender_name ? `<strong>${data.sender_name}</strong> has sent you` : "You've received"} a Zaro Bakehouse gift card worth <strong>₹${data.amount.toLocaleString("en-IN")}</strong>!</p>
+        ${data.message ? `<div class="box"><p><em>"${data.message}"</em></p></div>` : ""}
+        
+        <div style="background:#203329;border-radius:16px;padding:28px;text-align:center;margin:24px 0">
+          <p style="color:rgba(255,255,255,0.6);font-size:11px;text-transform:uppercase;letter-spacing:2px;margin:0 0 10px">Your Gift Card Code</p>
+          <p style="color:#ffffff;font-size:28px;font-weight:800;letter-spacing:4px;margin:0;font-family:monospace">${data.code}</p>
+          <p style="color:rgba(255,255,255,0.5);font-size:11px;margin:10px 0 0">Single use · No expiry</p>
+        </div>
+
+        <h3>How to use your gift card</h3>
+        <div class="box">
+          <p>1. Visit <a href="${process.env.NEXT_PUBLIC_SITE_URL}">zarobakehouse.com</a> and add items to your cart<br/>
+          2. At checkout, select "Gift Card" as your payment method<br/>
+          3. Enter the code above to redeem your gift card<br/>
+          4. Your order will be placed instantly!</p>
+        </div>
+        <p style="margin-top:24px">Questions? <a href="mailto:zarobakerhouse@gmail.com">zarobakerhouse@gmail.com</a> · <a href="tel:+919820153592">+91 98201 53592</a></p>
+      </div>
+      ${buildFooter()}
+    </div>
+  </body></html>`;
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM,
+    to: data.recipient_email,
+    subject: `You've received a ₹${data.amount} Zaro Bakehouse Gift Card!`,
+    html,
+  });
+}
