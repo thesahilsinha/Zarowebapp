@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { SlidersHorizontal, X, ChevronDown } from "lucide-react";
 import ProductCard from "@/components/home/ProductCard";
@@ -19,6 +19,8 @@ const SORT_OPTIONS = [
   { label: "Best Sellers", value: "best_sellers" },
 ];
 
+const PER_PAGE = 20;
+
 export default function ShopClient({ initialProducts, categories, searchParams }: Props) {
   const [selectedCategory, setSelectedCategory] = useState<string>(
     searchParams.category || "all"
@@ -30,6 +32,7 @@ export default function ShopClient({ initialProducts, categories, searchParams }
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 5000]);
   const [showFilters, setShowFilters] = useState(false);
   const [showSortDropdown, setShowSortDropdown] = useState(false);
+  const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
     let result = [...initialProducts];
@@ -68,6 +71,22 @@ export default function ShopClient({ initialProducts, categories, searchParams }
 
     return result;
   }, [initialProducts, selectedCategory, selectedType, sortBy, priceRange, searchParams.filter]);
+
+  // Reset to page 1 whenever any filter/sort changes
+  useEffect(() => {
+    setPage(1);
+  }, [selectedCategory, selectedType, sortBy, priceRange, searchParams.filter]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+
+  const pageNumbers = Array.from({ length: totalPages }, (_, i) => i + 1)
+    .filter((n) => n === 1 || n === totalPages || Math.abs(n - page) <= 1)
+    .reduce((acc: (number | string)[], n, idx, arr) => {
+      if (idx > 0 && (n as number) - (arr[idx - 1] as number) > 1) acc.push("...");
+      acc.push(n);
+      return acc;
+    }, []);
 
   const activeFiltersCount = [
     selectedCategory !== "all",
@@ -325,11 +344,66 @@ export default function ShopClient({ initialProducts, categories, searchParams }
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-5">
-          {filtered.map((product) => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-5">
+            {paginated.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-10">
+              <p className="text-xs text-muted-foreground order-2 sm:order-1">
+                Showing {(page - 1) * PER_PAGE + 1}–{Math.min(page * PER_PAGE, filtered.length)} of {filtered.length}
+              </p>
+              <div className="flex items-center gap-1.5 order-1 sm:order-2">
+                <button
+                  onClick={() => {
+                    setPage((p) => Math.max(1, p - 1));
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  disabled={page === 1}
+                  className="px-4 py-2 rounded-xl border border-border text-sm font-medium hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Previous
+                </button>
+
+                {pageNumbers.map((n, i) =>
+                  n === "..." ? (
+                    <span key={`ellipsis-${i}`} className="px-2 text-sm text-muted-foreground">…</span>
+                  ) : (
+                    <button
+                      key={n}
+                      onClick={() => {
+                        setPage(n as number);
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                      className={`w-9 h-9 rounded-xl text-sm font-semibold transition-colors ${
+                        page === n
+                          ? "bg-brand-500 text-white"
+                          : "border border-border hover:bg-accent"
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  )
+                )}
+
+                <button
+                  onClick={() => {
+                    setPage((p) => Math.min(totalPages, p + 1));
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  disabled={page === totalPages}
+                  className="px-4 py-2 rounded-xl border border-border text-sm font-medium hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
