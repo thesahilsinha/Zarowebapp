@@ -1,32 +1,28 @@
 "use client";
 import { useState } from "react";
-import { Plus, Minus, Trash2, ShoppingBag, ChevronRight } from "lucide-react";
+import { Plus, Minus, Trash2, ShoppingBag, MessageCircle } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
-import { useCart } from "@/contexts/CartContext";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import toast from "react-hot-toast";
 
 export default function CustomHamperClient({ products }: { products: any[] }) {
   const [selected, setSelected] = useState<Record<string, number>>({});
   const [search, setSearch] = useState("");
-  const [adding, setAdding] = useState(false);
-  const router = useRouter();
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 12;
 
   const filtered = products.filter((p) =>
     p.name.toLowerCase().includes(search.toLowerCase())
   );
+  const totalPages = Math.ceil(filtered.length / PER_PAGE);
+  const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
   const addItem = (id: string) => setSelected((prev) => ({ ...prev, [id]: (prev[id] || 0) + 1 }));
   const removeItem = (id: string) => setSelected((prev) => {
     const next = { ...prev };
-    if (next[id] <= 1) delete next[id];
-    else next[id]--;
+    if (next[id] <= 1) delete next[id]; else next[id]--;
     return next;
   });
-  const deleteItem = (id: string) => setSelected((prev) => {
-    const next = { ...prev }; delete next[id]; return next;
-  });
+  const deleteItem = (id: string) => setSelected((prev) => { const next = { ...prev }; delete next[id]; return next; });
 
   const hamperItems = Object.entries(selected).map(([id, qty]) => {
     const product = products.find((p) => p.id === id)!;
@@ -35,23 +31,13 @@ export default function CustomHamperClient({ products }: { products: any[] }) {
 
   const total = hamperItems.reduce((sum, item) => sum + (item.discount_price || item.price) * item.qty, 0);
 
-  const handleAddToCart = async () => {
-    if (hamperItems.length === 0) { toast.error("Add at least one item to your hamper"); return; }
-    setAdding(true);
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { toast.error("Please login to continue"); router.push("/login"); setAdding(false); return; }
-
-    for (const item of hamperItems) {
-      await supabase.from("carts").upsert(
-        { user_id: user.id, product_id: item.id, quantity: item.qty },
-        { onConflict: "user_id,product_id" }
-      );
-    }
-
-    toast.success("Hamper added to cart!");
-    setAdding(false);
-    router.push("/checkout");
+  const buildWhatsAppMessage = () => {
+    const itemsList = hamperItems.map((i) =>
+      `• ${i.name} x${i.qty} — ₹${((i.discount_price || i.price) * i.qty).toLocaleString("en-IN")}`
+    ).join("\n");
+    return encodeURIComponent(
+      `Hi Zaro Bakehouse! I'd like to create a custom hamper:\n\n${itemsList}\n\nEstimated Total: ₹${total.toLocaleString("en-IN")}\n\nPlease confirm availability and packaging options.`
+    );
   };
 
   return (
@@ -59,18 +45,19 @@ export default function CustomHamperClient({ products }: { products: any[] }) {
       <div className="text-center mb-10">
         <p className="text-brand-500 text-xs font-semibold uppercase tracking-widest mb-2">Make it yours</p>
         <h1 className="font-playfair text-4xl font-bold text-foreground mb-3">Build Your Custom Hamper</h1>
-        <p className="text-muted-foreground text-sm max-w-md mx-auto">Pick any items from our menu and we'll pack them beautifully into a custom hamper. Checkout normally and add special packaging instructions in the order notes.</p>
+        <p className="text-muted-foreground text-sm max-w-md mx-auto">Pick any items from our menu and we'll pack them beautifully into a custom hamper for you.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Product selector */}
+        {/* Products */}
         <div className="lg:col-span-2">
-          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+          <input type="text" value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             placeholder="Search products..."
             className="w-full px-4 py-2.5 rounded-xl border border-border text-sm focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white mb-5" />
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {filtered.map((product) => {
+            {paginated.map((product) => {
               const qty = selected[product.id] || 0;
               const price = product.discount_price || product.price;
               return (
@@ -96,11 +83,11 @@ export default function CustomHamperClient({ products }: { products: any[] }) {
                       </button>
                     ) : (
                       <div className="flex items-center justify-between">
-                        <button onClick={() => removeItem(product.id)} className="w-8 h-8 rounded-lg bg-accent hover:bg-brand-100 flex items-center justify-center transition-colors">
+                        <button onClick={() => removeItem(product.id)} className="w-8 h-8 rounded-lg bg-accent hover:bg-brand-100 flex items-center justify-center">
                           <Minus size={13} />
                         </button>
                         <span className="font-bold text-sm">{qty}</span>
-                        <button onClick={() => addItem(product.id)} className="w-8 h-8 rounded-lg bg-forest-800 hover:bg-forest-700 text-white flex items-center justify-center transition-colors">
+                        <button onClick={() => addItem(product.id)} className="w-8 h-8 rounded-lg bg-forest-800 hover:bg-forest-700 text-white flex items-center justify-center">
                           <Plus size={13} />
                         </button>
                       </div>
@@ -110,9 +97,29 @@ export default function CustomHamperClient({ products }: { products: any[] }) {
               );
             })}
           </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 mt-6">
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                className="px-4 py-2 rounded-xl border border-border text-sm font-medium hover:bg-accent disabled:opacity-40 transition-colors">
+                Previous
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                <button key={p} onClick={() => setPage(p)}
+                  className={`w-9 h-9 rounded-xl text-sm font-semibold transition-colors ${page === p ? "bg-brand-500 text-white" : "border border-border hover:bg-accent"}`}>
+                  {p}
+                </button>
+              ))}
+              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                className="px-4 py-2 rounded-xl border border-border text-sm font-medium hover:bg-accent disabled:opacity-40 transition-colors">
+                Next
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Hamper summary */}
+        {/* Summary */}
         <div className="lg:col-span-1">
           <div className="bg-white rounded-3xl border border-border p-6 sticky top-24">
             <h2 className="font-playfair font-bold text-xl mb-4 flex items-center gap-2">
@@ -136,7 +143,7 @@ export default function CustomHamperClient({ products }: { products: any[] }) {
                         <p className="text-xs font-medium line-clamp-1">{item.name}</p>
                         <p className="text-xs text-muted-foreground">x{item.qty} · ₹{((item.discount_price || item.price) * item.qty).toLocaleString("en-IN")}</p>
                       </div>
-                      <button onClick={() => deleteItem(item.id)} className="p-1 hover:text-red-500 transition-colors text-muted-foreground flex-shrink-0">
+                      <button onClick={() => deleteItem(item.id)} className="p-1 hover:text-red-500 transition-colors text-muted-foreground">
                         <Trash2 size={13} />
                       </button>
                     </div>
@@ -145,19 +152,18 @@ export default function CustomHamperClient({ products }: { products: any[] }) {
 
                 <div className="border-t border-border pt-4 mb-5">
                   <div className="flex justify-between text-sm font-bold text-foreground">
-                    <span>Total</span>
+                    <span>Estimated Total</span>
                     <span>{formatPrice(total)}</span>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1">Packaging included. Add instructions at checkout.</p>
+                  <p className="text-xs text-muted-foreground mt-1">Final price confirmed via WhatsApp.</p>
                 </div>
 
-                <button onClick={handleAddToCart} disabled={adding}
-                  className="w-full bg-brand-500 hover:bg-brand-600 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2 disabled:opacity-60">
-                  {adding
-                    ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Adding...</>
-                    : <><ShoppingBag size={16} /> Proceed to Checkout <ChevronRight size={15} /></>
-                  }
-                </button>
+                <a href={`https://wa.me/919820153592?text=${buildWhatsAppMessage()}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2">
+                  <MessageCircle size={16} /> Send via WhatsApp
+                </a>
+                <p className="text-xs text-muted-foreground text-center mt-2">We'll confirm and arrange delivery.</p>
               </>
             )}
           </div>

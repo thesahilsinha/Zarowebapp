@@ -34,6 +34,11 @@ const NAV = [
     href: "/blog",
     children: null,
   },
+  {
+    label: "Cakes",
+    href: "/cakes",
+    children: null,
+  },
 ];
 
 export default function Header() {

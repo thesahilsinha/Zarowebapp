@@ -4,23 +4,24 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ShoppingBag, Package, Tag,
   Users, MapPin, Ticket, FileText, Settings,
-  Image, LogOut, ChevronRight, Gift, Menu, X
+  Image, LogOut, ChevronRight, Gift, Menu, X, Cake
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import toast from "react-hot-toast";
+import { useState, useEffect } from "react";
+import { createClient } from "@/lib/supabase/client";
 
 const NAV = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { href: "/admin/products", label: "Products", icon: Package },
+  { href: "/admin/cakes", label: "Cakes", icon: Cake },
   { href: "/admin/categories", label: "Categories", icon: Tag },
-  { href: "/admin/orders", label: "Orders", icon: ShoppingBag },
+  { href: "/admin/orders", label: "Orders", icon: ShoppingBag, badgeKey: "orders" },
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/banners", label: "Banners", icon: Image },
   { href: "/admin/coupons", label: "Coupons", icon: Ticket },
   { href: "/admin/gift-cards", label: "Gift Cards", icon: Gift },
   { href: "/admin/pincodes", label: "Pincodes", icon: MapPin },
-  { href: "/admin/tickets", label: "Help Desk", icon: FileText },
+  { href: "/admin/tickets", label: "Help Desk", icon: FileText, badgeKey: "tickets" },
   { href: "/admin/blog", label: "Blog", icon: FileText },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ];
@@ -29,6 +30,24 @@ export default function AdminSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [badges, setBadges] = useState<{ orders: number; tickets: number }>({ orders: 0, tickets: 0 });
+
+  useEffect(() => {
+    const fetchBadges = async () => {
+      const supabase = createClient();
+      const [{ count: pendingOrders }, { count: openTickets }] = await Promise.all([
+        supabase.from("orders").select("*", { count: "exact", head: true }).eq("status", "pending"),
+        supabase.from("help_tickets").select("*", { count: "exact", head: true }).eq("status", "open"),
+      ]);
+      setBadges({ orders: pendingOrders || 0, tickets: openTickets || 0 });
+    };
+
+    fetchBadges();
+
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchBadges, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleLogout = () => {
     document.cookie = "admin_auth=; path=/; max-age=0";
@@ -57,17 +76,25 @@ export default function AdminSidebar() {
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        {NAV.map(({ href, label, icon: Icon, exact }) => {
+        {NAV.map(({ href, label, icon: Icon, exact, badgeKey }) => {
           const active = isActive(href, exact) || (exact && pathname === "/admin");
+          const badgeCount = badgeKey ? badges[badgeKey as keyof typeof badges] : 0;
           return (
             <Link key={href} href={href}
               onClick={() => setMobileOpen(false)}
               className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
                 active ? "bg-brand-500 text-white" : "text-white/60 hover:bg-white/10 hover:text-white"
               }`}>
-              <Icon size={16} />
-              {label}
-              {active && <ChevronRight size={14} className="ml-auto" />}
+              <Icon size={16} className="flex-shrink-0" />
+              <span className="flex-1">{label}</span>
+              {badgeCount > 0 && (
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center ${
+                  active ? "bg-white text-brand-600" : "bg-red-500 text-white"
+                }`}>
+                  {badgeCount > 99 ? "99+" : badgeCount}
+                </span>
+              )}
+              {active && badgeCount === 0 && <ChevronRight size={14} className="ml-auto" />}
             </Link>
           );
         })}
@@ -104,10 +131,17 @@ export default function AdminSidebar() {
           </div>
           <p className="font-playfair font-bold text-sm text-white">Zaro Admin</p>
         </Link>
-        <button onClick={() => setMobileOpen(!mobileOpen)}
-          className="p-2 rounded-xl hover:bg-white/10 transition-colors">
-          {mobileOpen ? <X size={20} /> : <Menu size={20} />}
-        </button>
+        <div className="flex items-center gap-2">
+          {(badges.orders > 0 || badges.tickets > 0) && (
+            <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+              {badges.orders + badges.tickets}
+            </span>
+          )}
+          <button onClick={() => setMobileOpen(!mobileOpen)}
+            className="p-2 rounded-xl hover:bg-white/10 transition-colors">
+            {mobileOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+        </div>
       </div>
 
       {/* Mobile drawer */}
@@ -120,7 +154,6 @@ export default function AdminSidebar() {
         </div>
       )}
 
-      {/* Mobile top padding spacer */}
       <div className="md:hidden h-14 flex-shrink-0" />
     </>
   );
