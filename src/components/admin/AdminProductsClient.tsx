@@ -134,9 +134,24 @@ export default function AdminProductsClient({ products, categories }: any) {
     router.refresh();
   };
 
+  // ---- Pagination ----
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 15;
+
   const filtered = products.filter((p: any) =>
     p.name.toLowerCase().includes(search.toLowerCase())
   );
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+
+  const pageNumbers = Array.from({ length: totalPages }, (_, i) => i + 1)
+    .filter((n) => n === 1 || n === totalPages || Math.abs(n - page) <= 1)
+    .reduce((acc: (number | string)[], n, idx, arr) => {
+      if (idx > 0 && (n as number) - (arr[idx - 1] as number) > 1) acc.push("...");
+      acc.push(n);
+      return acc;
+    }, []);
 
   const modal = showForm ? (
     <div className="fixed inset-0 bg-black/50 z-[9999] flex items-start justify-center overflow-y-auto py-8 px-4">
@@ -276,7 +291,7 @@ export default function AdminProductsClient({ products, categories }: any) {
         <input
           type="text"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           placeholder="Search products..."
           className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-400"
         />
@@ -300,7 +315,7 @@ export default function AdminProductsClient({ products, categories }: any) {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtered.map((product: any) => (
+              {paginated.map((product: any) => (
                 <tr key={product.id} className="hover:bg-accent/30 transition-colors">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
@@ -352,6 +367,50 @@ export default function AdminProductsClient({ products, categories }: any) {
           {!filtered.length && <div className="py-10 text-center text-muted-foreground text-sm">No products found</div>}
         </div>
       </div>
+
+      {/* Pagination controls */}
+      {filtered.length > 0 && totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4 px-1 flex-wrap gap-3">
+          <p className="text-xs text-muted-foreground">
+            Showing {(page - 1) * PER_PAGE + 1}–{Math.min(page * PER_PAGE, filtered.length)} of {filtered.length}
+          </p>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="px-3 py-1.5 rounded-lg border border-border text-sm font-medium hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Prev
+            </button>
+
+            {pageNumbers.map((n, i) =>
+              n === "..." ? (
+                <span key={`ellipsis-${i}`} className="px-2 text-sm text-muted-foreground">…</span>
+              ) : (
+                <button
+                  key={n}
+                  onClick={() => setPage(n as number)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                    page === n
+                      ? "bg-brand-500 text-white"
+                      : "border border-border hover:bg-accent"
+                  }`}
+                >
+                  {n}
+                </button>
+              )
+            )}
+
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+              className="px-3 py-1.5 rounded-lg border border-border text-sm font-medium hover:bg-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
